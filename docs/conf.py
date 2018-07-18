@@ -2,13 +2,14 @@
 #
 # This file is execfile()d with the current directory set to its containing dir.
 
-import os, sys, time, cgi
+import re, os, sys, time, cgi
 sys.path.append(os.path.abspath(".."))
 
+extensions = ['sphinx.ext.intersphinx']
+
 from get_version import __version__ as hy_version
-if hy_version.endswith(".dirty"):
-    # Read the Docs might dirty its checkout, so ignore this.
-    hy_version = hy_version[:-len(".dirty")]
+# Read the Docs might dirty its checkout, so strip the dirty flag.
+hy_version = re.sub(r'[+.]dirty\Z', '', hy_version)
 
 templates_path = ['_templates']
 source_suffix = '.rst'
@@ -49,3 +50,7 @@ html_show_sphinx = False
 
 html_context = dict(
     hy_descriptive_version = hy_descriptive_version)
+
+intersphinx_mapping = dict(
+    py2 = ('https://docs.python.org/2/', None),
+    py  = ('https://docs.python.org/3/', None))

@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
 import os
-import subprocess
 import re
-from hy._compat import PY3
+import shlex
+import subprocess
+
+import pytest
+
+from hy._compat import builtins
 from hy.importer import get_bytecode_path
 
 
@@ -18,25 +22,25 @@ def hr(s=""):
     return "hy --repl-output-fn=hy.contrib.hy-repr.hy-repr " + s
 
 
-def run_cmd(cmd, stdin_data=None, expect=0):
-    p = subprocess.Popen(os.path.join(hy_dir, cmd),
+def run_cmd(cmd, stdin_data=None, expect=0, dontwritebytecode=False):
+    env = dict(os.environ)
+    if dontwritebytecode:
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+    else:
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+
+    cmd = shlex.split(cmd)
+    cmd[0] = os.path.join(hy_dir, cmd[0])
+    p = subprocess.Popen(cmd,
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE,
-                         shell=True)
-    if stdin_data is not None:
-        p.stdin.write(stdin_data.encode('ASCII'))
-        p.stdin.flush()
-        p.stdin.close()
-    # Read stdout and stderr otherwise if the PIPE buffer is full, we might
-    # wait for ever…
-    stdout = ""
-    stderr = ""
-    while p.poll() is None:
-        stdout += p.stdout.read().decode('utf-8')
-        stderr += p.stderr.read().decode('utf-8')
-    assert p.returncode == expect
-    return stdout, stderr
+                         universal_newlines=True,
+                         shell=False,
+                         env=env)
+    output = p.communicate(input=stdin_data)
+    assert p.wait() == expect
+    return output
 
 
 def rm(fpath):
@@ -59,7 +63,7 @@ def test_bin_hy_stdin():
 
     output, _ = run_cmd("hy --spy", '(koan)')
     assert "monk" in output
-    assert "\\n  Ummon" in output
+    assert "\n  Ummon" in output
 
     # --spy should work even when an exception is thrown
     output, _ = run_cmd("hy --spy", '(foof)')
@@ -69,6 +73,18 @@ def test_bin_hy_stdin():
 def test_bin_hy_stdin_multiline():
     output, _ = run_cmd("hy", '(+ "a" "b"\n"c" "d")')
     assert "'abcd'" in output
+
+
+def test_bin_hy_history():
+    output, _ = run_cmd("hy", '''(+ "a" "b")
+                                 (+ "c" "d")
+                                 (+ "e" "f")
+                                 (.format "*1: {}, *2: {}, *3: {}," *1 *2 *3)''')
+    assert "'*1: ef, *2: cd, *3: ab,'" in output
+
+    output, _ = run_cmd("hy", '''(raise (Exception "TEST ERROR"))
+                                 (+ "err: " (str *e))''')
+    assert "'err: TEST ERROR'" in output
 
 
 def test_bin_hy_stdin_comments():
@@ -125,6 +141,26 @@ def test_bin_hy_stdin_except_do():
     assert "zzz" in output
 
 
+def test_bin_hy_stdin_unlocatable_hytypeerror():
+    # https://github.com/hylang/hy/issues/1412
+    # The chief test of interest here is the returncode assertion
+    # inside run_cmd.
+    _, err = run_cmd("hy", """
+        (import hy.errors)
+        (raise (hy.errors.HyTypeError '[] (+ "A" "Z")))""")
+    assert "AZ" in err
+
+
+def test_bin_hy_stdin_bad_repr():
+    # https://github.com/hylang/hy/issues/1389
+    output, err = run_cmd("hy", """
+         (defclass BadRepr [] (defn __repr__ [self] (/ 0)))
+         (BadRepr)
+         (+ "A" "Z")""")
+    assert "ZeroDivisionError" in err
+    assert "AZ" in output
+
+
 def test_bin_hy_stdin_hy_repr():
     output, _ = run_cmd("hy", '(+ [1] [2])')
     assert "[1, 2]" in output.replace('L', '')
@@ -140,6 +176,23 @@ def test_bin_hy_stdin_hy_repr():
     output, _ = run_cmd(hr("--spy"), '(+ [1] [2] (foof))')
     assert "[1]+[2]" in output.replace('L', '').replace(' ', '')
 
+def test_bin_hy_ignore_python_env():
+    os.environ.update({"PYTHONTEST": '0'})
+    output, _ = run_cmd("hy -c '(print (do (import os) (. os environ)))'")
+    assert "PYTHONTEST" in output
+    output, _ = run_cmd("hy -m tests.resources.bin.printenv")
+    assert "PYTHONTEST" in output
+    output, _ = run_cmd("hy tests/resources/bin/printenv.hy")
+    assert "PYTHONTEST" in output
+
+    output, _ = run_cmd("hy -E -c '(print (do (import os) (. os environ)))'")
+    assert "PYTHONTEST" not in output
+    os.environ.update({"PYTHONTEST": '0'})
+    output, _ = run_cmd("hy -E -m tests.resources.bin.printenv")
+    assert "PYTHONTEST" not in output
+    os.environ.update({"PYTHONTEST": '0'})
+    output, _ = run_cmd("hy -E tests/resources/bin/printenv.hy")
+    assert "PYTHONTEST" not in output
 
 def test_bin_hy_cmd():
     output, _ = run_cmd("hy -c \"(koan)\"")
@@ -162,7 +215,7 @@ def test_bin_hy_icmd_file():
 
 def test_bin_hy_icmd_and_spy():
     output, _ = run_cmd("hy -i \"(+ [] [])\" --spy", "(+ 1 1)")
-    assert "([] + [])" in output
+    assert "[] + []" in output
 
 
 def test_bin_hy_missing_file():
@@ -196,27 +249,16 @@ def test_bin_hyc_missing_file():
     assert "[Errno 2]" in err
 
 
-def test_hy2py():
-    i = 0
-    for dirpath, dirnames, filenames in os.walk("tests/native_tests"):
-        for f in filenames:
-            if f.endswith(".hy"):
-                if f == "py3_only_tests.hy" and not PY3:
-                    continue
-                else:
-                    i += 1
-                    output, err = run_cmd("hy2py -s -a " +
-                                          os.path.join(dirpath, f))
-                    assert len(output) > 1, f
-                    assert len(err) == 0, f
-    assert i
-
-
 def test_bin_hy_builtins():
+    # hy.cmdline replaces builtins.exit and builtins.quit
+    # for use by hy's repl.
     import hy.cmdline  # NOQA
-
-    assert str(exit) == "Use (exit) or Ctrl-D (i.e. EOF) to exit"
-    assert str(quit) == "Use (quit) or Ctrl-D (i.e. EOF) to exit"
+    # this test will fail if run from IPython because IPython deletes
+    # builtins.exit and builtins.quit
+    assert str(builtins.exit) == "Use (exit) or Ctrl-D (i.e. EOF) to exit"
+    assert type(builtins.exit) is hy.cmdline.HyQuitter
+    assert str(builtins.quit) == "Use (quit) or Ctrl-D (i.e. EOF) to exit"
+    assert type(builtins.quit) is hy.cmdline.HyQuitter
 
 
 def test_bin_hy_main():
@@ -239,39 +281,42 @@ def test_bin_hy_no_main():
     assert "This Should Still Work" in output
 
 
-def test_bin_hy_byte_compile():
+@pytest.mark.parametrize('scenario', [
+    "normal", "prevent_by_force", "prevent_by_env"])
+@pytest.mark.parametrize('cmd_fmt', [
+    'hy {fpath}', 'hy -m {modname}', "hy -c '(import {modname})'"])
+def test_bin_hy_byte_compile(scenario, cmd_fmt):
 
     modname = "tests.resources.bin.bytecompile"
     fpath = modname.replace(".", "/") + ".hy"
+    cmd = cmd_fmt.format(**locals())
 
-    for can_byte_compile in [True, False]:
-        for cmd in ["hy " + fpath,
-                    "hy -m " + modname,
-                    "hy -c '(import {})'".format(modname)]:
+    rm(get_bytecode_path(fpath))
 
-            rm(get_bytecode_path(fpath))
+    if scenario == "prevent_by_force":
+        # Keep Hy from being able to byte-compile the module by
+        # creating a directory at the target location.
+        os.mkdir(get_bytecode_path(fpath))
 
-            if not can_byte_compile:
-                # Keep Hy from being able to byte-compile the module by
-                # creating a directory at the target location.
-                os.mkdir(get_bytecode_path(fpath))
+    # Whether or not we can byte-compile the module, we should be able
+    # to run it.
+    output, _ = run_cmd(cmd, dontwritebytecode=scenario == "prevent_by_env")
+    assert "Hello from macro" in output
+    assert "The macro returned: boink" in output
 
-            # Whether or not we can byte-compile the module, we should be able
-            # to run it.
-            output, _ = run_cmd(cmd)
-            assert "Hello from macro" in output
-            assert "The macro returned: boink" in output
+    if scenario == "normal":
+        # That should've byte-compiled the module.
+        assert os.path.exists(get_bytecode_path(fpath))
+    elif scenario == "prevent_by_env":
+        # No byte-compiled version should've been created.
+        assert not os.path.exists(get_bytecode_path(fpath))
 
-            if can_byte_compile:
-                # That should've byte-compiled the module.
-                assert os.path.exists(get_bytecode_path(fpath))
-
-            # When we run the same command again, and we've byte-compiled the
-            # module, the byte-compiled version should be run instead of the
-            # source, in which case the macro shouldn't be run.
-            output, _ = run_cmd(cmd)
-            assert ("Hello from macro" in output) ^ can_byte_compile
-            assert "The macro returned: boink" in output
+    # When we run the same command again, and we've byte-compiled the
+    # module, the byte-compiled version should be run instead of the
+    # source, in which case the macro shouldn't be run.
+    output, _ = run_cmd(cmd)
+    assert ("Hello from macro" in output) ^ (scenario == "normal")
+    assert "The macro returned: boink" in output
 
 
 def test_bin_hy_module_main():

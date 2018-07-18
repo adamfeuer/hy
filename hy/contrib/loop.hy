@@ -1,5 +1,5 @@
 ;;; Hy tail-call optimization
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -27,7 +27,7 @@
     (when (not (first active))
       (assoc active 0 True)
       (while (> (len accumulated) 0)
-        (setv result (apply f (.pop accumulated))))
+        (setv result (f #* (.pop accumulated))))
       (assoc active 0 False)
       result)))
 

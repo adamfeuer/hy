@@ -8,6 +8,12 @@ Hy <-> Python interop
 Despite being a Lisp, Hy aims to be fully compatible with Python. That means
 every Python module or package can be imported in Hy code, and vice versa.
 
+:ref:`Mangling <mangling>` allows variable names to be spelled differently in
+Hy and Python. For example, Python's ``str.format_map`` can be written
+``str.format-map`` in Hy, and a Hy function named ``valid?`` would be called
+``is_valid`` in Python. In Python, you can import Hy's core functions
+``mangle`` and ``unmangle`` directly from the ``hy`` package.
+
 Using Python from Hy
 ====================
 
@@ -27,41 +33,6 @@ You can use it in Hy:
 
 You can also import ``.pyc`` bytecode files, of course.
 
-A quick note about mangling
---------
-
-In Python, snake_case is used by convention. Lisp dialects tend to use dashes
-instead of underscores, so Hy does some magic to give you more pleasant names.
-
-In the same way, ``UPPERCASE_NAMES`` from Python can be used ``*with-earmuffs*``
-instead.
-
-You can use either the original names or the new ones.
-
-Imagine ``example.py``::
-
-    def function_with_a_long_name():
-        print(42)
-
-    FOO = "bar"
-
-Then, in Hy:
-
-.. code-block:: clj
-
-    (import example)
-    (.function-with-a-long-name example) ; prints "42"
-    (.function_with_a_long_name example) ; also prints "42"
-
-    (print (. example *foo*)) ; prints "bar"
-    (print (. example FOO))   ; also prints "bar"
-
-.. warning::
-   Mangling isn’t that simple; there is more to discuss about it, yet it doesn’t
-   belong in this section.
-.. TODO: link to mangling section, when it is done
-
-
 Using Hy from Python
 ====================
 
@@ -77,7 +48,7 @@ If you save the following in ``greetings.hy``:
 .. code-block:: clj
 
     (setv *this-will-be-in-caps-and-underscores* "See?")
-    (defn greet [name] (Print "hello from hy," name))
+    (defn greet [name] (print "hello from hy," name))
 
 Then you can use it directly from Python, by importing Hy before importing
 the module. In Python::
@@ -131,5 +102,17 @@ argument::
     test()
     bar
 
+Evaluating strings of Hy code from Python
+-----------------------------------------
 
+Evaluating a string (or ``file`` object) containing a Hy expression requires
+two separate steps. First, use the ``read_str`` function (or ``read`` for a
+``file`` object) to turn the expression into a Hy model::
 
+    >>> import hy
+    >>> expr = hy.read_str("(- (/ (+ 1 3 88) 2) 8)")
+
+Then, use the ``eval`` function to evaluate it::
+
+    >>> hy.eval(expr)
+    38.0

@@ -1,4 +1,4 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
@@ -7,18 +7,6 @@ import ast
 from hy import compiler
 from hy.models import HyExpression, HyList, HySymbol, HyInteger
 from hy._compat import PY3
-
-
-def test_builds_with_dash():
-    assert callable(compiler.builds("foobar"))
-    assert callable(compiler.builds("foo_bar"))
-    assert callable(compiler.builds("-"))
-    try:
-        compiler.builds("foobar-with-dash-")
-    except TypeError as e:
-        assert "*post* translated strings" in str(e)
-    else:
-        assert False
 
 
 def make_expression(*args):
@@ -67,7 +55,7 @@ def test_compiler_yield_return():
                         HyExpression([HySymbol("+"),
                                       HyInteger(1),
                                       HyInteger(1)]))
-    ret = compiler.HyASTCompiler('test').compile_function_def(e)
+    ret = compiler.HyASTCompiler('test').compile_atom(e)
 
     assert len(ret.stmts) == 1
     stmt, = ret.stmts

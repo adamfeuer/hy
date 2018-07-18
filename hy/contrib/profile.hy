@@ -1,5 +1,5 @@
 ;;; Hy profiling macros
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -10,7 +10,7 @@
   `(do
      (import [pycallgraph [PyCallGraph]]
              [pycallgraph.output [GraphvizOutput]])
-     (with* [(apply PyCallGraph [] {"output" (GraphvizOutput)})]
+     (with* [(PyCallGraph :output (GraphvizOutput))]
            ~@body)))
 
 
@@ -29,6 +29,6 @@
      (.disable ~g!hy-pr)
      (setv ~g!hy-s (StringIO))
      (setv ~g!hy-ps
-           (.sort-stats (apply pstats.Stats [~g!hy-pr] {"stream" ~g!hy-s})))
+           (.sort-stats (pstats.Stats ~g!hy-pr :stream ~g!hy-s)))
      (.print-stats ~g!hy-ps)
      (print (.getvalue ~g!hy-s))))

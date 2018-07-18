@@ -197,53 +197,37 @@ first element instead. This exposes the element being iterated as
    45
 
 
-.. _ap-pipe:
+.. _#%
 
-ap-pipe
-=========
-
-Usage ``(ap-pipe value form1 form2 ...)``
-
-Applies several forms in series to a value from left to right. The special variable ``ìt`` in each form is replaced by the result of the previous form.
-
-.. code-block:: hy
-
-   => (ap-pipe 3 (+ it 1) (/ 5 it))
-   1.25
-   => (ap-pipe [4 5 6 7] (list (rest it)) (len it))
-   3
-
-
-.. _ap-compose:
-
-ap-compose
-=========
-
-Usage ``(ap-compose form1 form2 ...)``
-
-Returns a function which applies several forms in series from left to right. The special variable ``ìt`` in each form is replaced by the result of the previous form.
-
-.. code-block:: hy
-
-   => (def op (ap-compose (+ it 1) (* it 3)))
-   => (op 2)
-   9
-
-.. _xi
-
-xi
+#%
 ==
 
-Usage ``(xi body ...)``
+Usage ``#% expr``
 
-Returns a function with parameters implicitly determined by the presence in the body of xi parameters. An xi symbol designates the ith parameter (1-based, e.g. x1, x2, x3, etc.), or all remaining parameters for xi itself. This is not a replacement for fn. The xi forms cannot be nested.
+Makes an expression into a function with an implicit ``%`` parameter list.
 
-This is similar to Clojure's anonymous function literals (``#()``).
+A ``%i`` symbol designates the (1-based) *i* th parameter (such as ``%3``).
+Only the maximum ``%i`` determines the number of ``%i`` parameters--the
+others need not appear in the expression.
+``%*`` and ``%**`` name the ``&rest`` and ``&kwargs`` parameters, respectively.
 
 .. code-block:: hy
 
-   => ((xi identity [x1 x5 [x2 x3] xi x4]) 1 2 3 4 5 6 7 8)
-   [1, 5, [2, 3,] (6, 7, 8), 4]
-   => (def add-10 (xi + 10 x1))
-   => (add-10 6)
-   16
+    => (#%[%1 %6 42 [%2 %3] %* %4] 1 2 3 4 555 6 7 8)
+    [1, 6, 42, [2, 3], (7, 8), 4]
+    => (#% %** :foo 2)
+    {"foo": 2}
+
+When used on an s-expression,
+``#%`` is similar to Clojure's anonymous function literals--``#()``.
+
+.. code-block:: hy
+
+    => (setv add-10 #%(+ 10 %1))
+    => (add-10 6)
+    16
+
+``#%`` determines the parameter list by the presence of a ``%*`` or ``%**``
+symbol and by the maximum ``%i`` symbol found *anywhere* in the expression,
+so nesting of ``#%`` forms is not recommended.
+

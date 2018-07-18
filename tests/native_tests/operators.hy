@@ -1,4 +1,4 @@
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -154,9 +154,9 @@
 
 (op-and-shadow-test ~
   (forbid (f))
-  (assert (= (f (chr 0b00101111)
-                (chr 0b11010000))))
-  (forbid (f (chr 0b00101111) (chr 0b11010000))))
+  (assert (= (& (f 0b00101111) 0xFF)
+                   0b11010000))
+  (forbid (f 0b00101111 0b11010000)))
 
 
 (op-and-shadow-test <
@@ -219,7 +219,15 @@
 
 (op-and-shadow-test [= is]
   (forbid (f))
+
   (assert (is (f "hello") True))
+
+  ; Unary comparison operators, despite always returning True,
+  ; should evaluate their argument.
+  (setv p "a")
+  (assert (is (f (do (setv p "b") "hello")) True))
+  (assert (= p "b"))
+
   (defclass C)
   (setv x (get {"is" (C) "=" 0} f-name))
   (setv y (get {"is" (C) "=" 1} f-name))
@@ -229,6 +237,7 @@
   (assert (is (f y x) False))
   (assert (is (f x x x x x) True))
   (assert (is (f x x x y x) False))
+
   (setv n None)
   (assert (is (f n None) True))
   (assert (is (f n "b") False)))
@@ -238,9 +247,9 @@
   (forbid (f))
   (forbid (f "hello"))
   (defclass C)
-  (setv x (get {"is_not" (C) "!=" 0} f-name))
-  (setv y (get {"is_not" (C) "!=" 1} f-name))
-  (setv z (get {"is_not" (C) "!=" 2} f-name))
+  (setv x (get {"is-not" (C) "!=" 0} f-name))
+  (setv y (get {"is-not" (C) "!=" 1} f-name))
+  (setv z (get {"is-not" (C) "!=" 2} f-name))
   (assert (is (f x x) False))
   (assert (is (f y y) False))
   (assert (is (f x y) True))
@@ -289,7 +298,10 @@
   (assert (is (f 2 [1 2]) (= f-name "in")))
   (forbid (f 2 [1 2] [3 4])))
 
-#@(pytest.mark.xfail
-(defn test-apply-op []
-  ; https://github.com/hylang/hy/issues/647
-  (assert (= (eval '(apply + ["a" "b" "c"])) "abc"))))
+
+(op-and-shadow-test [get]
+  (forbid (f))
+  (forbid (f "hello"))
+  (assert (= (f "hello" 1) "e"))
+  (assert (= (f [[1 2 3] [4 5 6] [7 8 9]] 1 2) 6))
+  (assert (= (f {"x" {"y" {"z" 12}}} "x" "y" "z") 12)))

@@ -1,5 +1,5 @@
 ;; Hy Arity-overloading
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -26,21 +26,21 @@
       (.issubset (frozenset (.keys kwargs)) com)))
 
   __call__ (fn [self &rest args &kwargs kwargs]
-    (setv output None)
+    (setv func None)
     (for [[i f] (.items (get self._fns self.f.__module__ self.f.__name__))]
       (when (.fn? self i args kwargs)
-        (setv output (apply f args kwargs))
+        (setv func f)
         (break)))
-    (if output
-      output
+    (if func
+      (func #* args #** kwargs)
       (raise (TypeError "No matching functions with this signature"))))])
 
 (defn multi-decorator [dispatch-fn]
   (setv inner (fn [&rest args &kwargs kwargs]
-                (setv dispatch-key (apply dispatch-fn args kwargs))
+                (setv dispatch-key (dispatch-fn #* args #** kwargs))
                 (if (in dispatch-key inner.--multi--)
-                  (apply (get inner.--multi-- dispatch-key) args kwargs)
-                  (apply inner.--multi-default-- args kwargs))))
+                  ((get inner.--multi-- dispatch-key) #* args #** kwargs)
+                  (inner.--multi-default-- #* args #** kwargs))))
   (setv inner.--multi-- {})
   (setv inner.--doc-- dispatch-fn.--doc--)
   (setv inner.--multi-default-- (fn [&rest args &kwargs kwargs] None))
@@ -74,20 +74,20 @@
   (, (get l 0) (cut l 1)))
 
 (defmacro defn [name &rest bodies]
-  (def arity-overloaded? (fn [bodies]
-                           (if (isinstance (first bodies) HyString)
-                             (arity-overloaded? (rest bodies))
-                             (isinstance (first bodies) HyExpression))))
+  (setv arity-overloaded? (fn [bodies]
+                            (if (isinstance (first bodies) HyString)
+                                (arity-overloaded? (rest bodies))
+                                (isinstance (first bodies) HyExpression))))
 
   (if (arity-overloaded? bodies)
     (do
-     (def comment (HyString))
+     (setv comment (HyString))
      (if (= (type (first bodies)) HyString)
-       (def [comment bodies] (head-tail bodies)))
-     (def ret `(do))
+       (setv [comment bodies] (head-tail bodies)))
+     (setv ret `(do))
      (.append ret '(import [hy.contrib.multi [MultiDispatch]]))
      (for [body bodies]
-       (def [let-binds body] (head-tail body))
+       (setv [let-binds body] (head-tail body))
        (.append ret 
                 `(with-decorator MultiDispatch (defn ~name ~let-binds ~comment ~@body))))
      ret)

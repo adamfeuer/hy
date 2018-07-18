@@ -1,18 +1,20 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
 from hy.macros import macro, macroexpand
 from hy.lex import tokenize
 
-from hy.models import HyString, HyList, HySymbol, HyExpression
+from hy.models import HyString, HyList, HySymbol, HyExpression, HyFloat
 from hy.errors import HyMacroExpansionError
 
 from hy.compiler import HyASTCompiler
 
+import pytest
+
 
 @macro("test")
-def tmac(*tree):
+def tmac(ETname, *tree):
     """ Turn an expression into a list """
     return HyList(tree)
 
@@ -44,9 +46,16 @@ def test_preprocessor_expression():
 
 def test_preprocessor_exceptions():
     """ Test that macro expansion raises appropriate exceptions"""
-    try:
+    with pytest.raises(HyMacroExpansionError) as excinfo:
         macroexpand(tokenize('(defn)')[0], HyASTCompiler(__name__))
-        assert False
-    except HyMacroExpansionError as e:
-        assert "_hy_anon_fn_" not in str(e)
-        assert "TypeError" not in str(e)
+    assert "_hy_anon_fn_" not in excinfo.value.message
+    assert "TypeError" not in excinfo.value.message
+
+
+def test_macroexpand_nan():
+   # https://github.com/hylang/hy/issues/1574
+   import math
+   NaN = float('nan')
+   x = macroexpand(HyFloat(NaN), HyASTCompiler(__name__))
+   assert type(x) is HyFloat
+   assert math.isnan(x)

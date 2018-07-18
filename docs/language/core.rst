@@ -66,11 +66,11 @@ chain the given functions together, so ``((comp g f) x)`` is equivalent to
 
 .. code-block:: hy
 
-   => (def example (comp str +))
+   => (setv example (comp str +))
    => (example 1 2 3)
    "6"
 
-   => (def simple (comp))
+   => (setv simple (comp))
    => (simple "hello")
    "hello"
 
@@ -89,56 +89,13 @@ inverted. So, ``((complement f) x)`` is equivalent to ``(not (f x))``.
 
 .. code-block:: hy
 
-   => (def inverse (complement identity))
+   => (setv inverse (complement identity))
    => (inverse True)
    False
    => (inverse 1)
    False
    => (inverse False)
    True
-
-
-cons
-----
-
-.. versionadded:: 0.10.0
-
-Usage: ``(cons a b)``
-
-Returns a fresh :ref:`cons cell <hycons>` with car *a* and cdr *b*.
-
-.. code-block:: hy
-
-   => (setv a (cons 'hd 'tl))
-
-   => (= 'hd (get a 0))
-   True
-
-   => (= 'tl (cut a 1))
-   True
-
-
-cons?
------
-
-.. versionadded:: 0.10.0
-
-Usage: ``(cons? foo)``
-
-Checks whether *foo* is a :ref:`cons cell <hycons>`.
-
-.. code-block:: hy
-
-   => (setv a (cons 'hd 'tl))
-
-   => (cons? a)
-   True
-
-   => (cons? None)
-   False
-
-   => (cons? [1 2 3])
-   False
 
 
 .. _constantly:
@@ -155,7 +112,7 @@ the arguments given to it.
 
 .. code-block:: hy
 
-   => (def answer (constantly 42))
+   => (setv answer (constantly 42))
    => (answer)
    42
    => (answer 1 2 3)
@@ -230,6 +187,30 @@ Returns ``True`` if *coll* is empty. Equivalent to ``(= 0 (len coll))``.
    False
 
 
+.. _eval-fn:
+
+eval
+----
+
+``eval`` evaluates a quoted expression and returns the value. The optional
+second and third arguments specify the dictionary of globals to use and the
+module name. The globals dictionary defaults to ``(local)`` and the module name
+defaults to the name of the current module.
+
+.. code-block:: clj
+
+   => (eval '(print "Hello World"))
+   "Hello World"
+
+If you want to evaluate a string, use ``read-str`` to convert it to a
+form first:
+
+.. code-block:: clj
+
+   => (eval (read-str "(+ 1 1)"))
+   2
+
+
 .. _every?-fn:
 
 every?
@@ -255,6 +236,19 @@ otherwise ``False``. Return ``True`` if *coll* is empty.
 
    => (every? even? [])
    True
+
+
+.. _exec-fn:
+
+exec
+----
+
+Equivalent to Python 3's built-in function :py:func:`exec`.
+
+.. code-block:: clj
+
+    => (exec "print(a + b)" {"a" 1} {"b" 2})
+    3
 
 
 .. _float?-fn:
@@ -544,10 +538,10 @@ objects with the `__name__` magic will work.
 .. code-block:: hy
 
    => (keyword "foo")
-   u'\ufdd0:foo'
+   HyKeyword('foo')
 
    => (keyword 1)
-   u'\ufdd0:1'
+   HyKeyword('foo')
 
 .. _keyword?-fn:
 
@@ -569,29 +563,6 @@ Check whether *foo* is a :ref:`keyword<HyKeyword>`.
    => (keyword? foo)
    False
 
-.. _list*-fn:
-
-list*
------
-
-Usage: ``(list* head &rest tail)``
-
-Generates a chain of nested cons cells (a dotted list) containing the
-arguments. If the argument list only has one element, return it.
-
-.. code-block:: hy
-
-   => (list* 1 2 3 4)
-   (1 2 3 . 4)
-
-   => (list* 1 2 3 [4])
-   [1, 2, 3, 4]
-
-   => (list* 1)
-   1
-
-   => (cons? (list* 1 2 3 4))
-   True
 
 .. _macroexpand-fn:
 
@@ -606,11 +577,23 @@ Returns the full macro expansion of *form*.
 
 .. code-block:: hy
 
-   => (macroexpand '(-> (a b) (x y)))
-   (u'x' (u'a' u'b') u'y')
-
-   => (macroexpand '(-> (a b) (-> (c d) (e f))))
-   (u'e' (u'c' (u'a' u'b') u'd') u'f')
+    => (macroexpand '(-> (a b) (x y)))
+    HyExpression([
+      HySymbol('x'),
+      HyExpression([
+        HySymbol('a'),
+        HySymbol('b')]),
+      HySymbol('y')])
+    => (macroexpand '(-> (a b) (-> (c d) (e f))))
+    HyExpression([
+      HySymbol('e'),
+      HyExpression([
+        HySymbol('c'),
+        HyExpression([
+          HySymbol('a'),
+          HySymbol('b')]),
+        HySymbol('d')]),
+      HySymbol('f')])
 
 .. _macroexpand-1-fn:
 
@@ -625,9 +608,33 @@ Returns the single step macro expansion of *form*.
 
 .. code-block:: hy
 
-   => (macroexpand-1 '(-> (a b) (-> (c d) (e f))))
-   (u'_>' (u'a' u'b') (u'c' u'd') (u'e' u'f'))
+    => (macroexpand-1 '(-> (a b) (-> (c d) (e f))))
+    HyExpression([
+      HySymbol('_>'),
+      HyExpression([
+        HySymbol('a'),
+        HySymbol('b')]),
+      HyExpression([
+        HySymbol('c'),
+        HySymbol('d')]),
+      HyExpression([
+        HySymbol('e'),
+        HySymbol('f')])])
 
+.. _mangle-fn:
+
+mangle
+------
+
+Usage: ``(mangle x)``
+
+Stringify the input and translate it according to :ref:`Hy's mangling rules
+<mangling>`.
+
+.. code-block:: hylang
+
+    => (mangle "foo-bar")
+    'foo_bar'
 
 .. _merge-with-fn:
 
@@ -645,7 +652,7 @@ calling ``(f val-in-result val-in-latter)``.
 
 .. code-block:: hy
 
-    => (merge-with (fn [x y] (+ x y)) {"a" 10 "b" 20} {"a" 1 "c" 30})
+    => (merge-with + {"a" 10 "b" 20} {"a" 1 "c" 30})
     {u'a': 11L, u'c': 30L, u'b': 20L}
 
 
@@ -802,26 +809,26 @@ Chunks *coll* into *n*-tuples (pairs by default).
 
 .. code-block:: hy
 
-   => (list (partition (range 10)))  ; n=2
-   [(, 0 1) (, 2 3) (, 4 5) (, 6 7) (, 8 9)]
+    => (list (partition (range 10)))  ; n=2
+    [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9)]
 
 The *step* defaults to *n*, but can be more to skip elements, or less for a sliding window with overlap.
 
 .. code-block:: hy
 
-   => (list (partition (range 10) 2 3))
-   [(, 0 1) (, 3 4) (, 6 7)]
-   => (list (partition (range 5) 2 1))
-   [(, 0 1) (, 1 2) (, 2 3) (, 3 4)])
+    => (list (partition (range 10) 2 3))
+    [(0, 1), (3, 4), (6, 7)]
+    => (list (partition (range 5) 2 1))
+    [(0, 1), (1, 2), (2, 3), (3, 4)]
 
 The remainder, if any, is not included unless a *fillvalue* is specified.
 
 .. code-block:: hy
 
-   => (list (partition (range 10) 3))
-   [(, 0 1 2) (, 3 4 5) (, 6 7 8)]
-   => (list (partition (range 10) 3 :fillvalue "x"))
-   [(, 0 1 2) (, 3 4 5) (, 6 7 8) (, 9 "x" "x")]
+    => (list (partition (range 10) 3))
+    [(0, 1, 2), (3, 4, 5), (6, 7, 8)]
+    => (list (partition (range 10) 3 :fillvalue "x"))
+    [(0, 1, 2), (3, 4, 5), (6, 7, 8), (9, 'x', 'x')]
 
 .. _pos?-fn:
 
@@ -1183,36 +1190,43 @@ if *from-file* ends before a complete expression can be parsed.
 
 .. code-block:: hy
 
-   => (read)
-   (+ 2 2)
-   ('+' 2 2)
-   => (eval (read))
-   (+ 2 2)
-   4
+    => (read)
+    (+ 2 2)
+    HyExpression([
+      HySymbol('+'),
+      HyInteger(2),
+      HyInteger(2)])
+    => (eval (read))
+    (+ 2 2)
+    4
+    => (import io)
+    => (setv buffer (io.StringIO "(+ 2 2)\n(- 2 1)"))
+    => (eval (read :from-file buffer))
+    4
+    => (eval (read :from-file buffer))
+    1
 
-   => (import io)
-   => (def buffer (io.StringIO "(+ 2 2)\n(- 2 1)"))
-   => (eval (apply read [] {"from_file" buffer}))
-   4
-   => (eval (apply read [] {"from_file" buffer}))
-   1
-
-   => ; assuming "example.hy" contains:
-   => ;   (print "hello")
-   => ;   (print "hyfriends!")
-   => (with [f (open "example.hy")]
-   ...   (try
-   ...     (while True
-   ...            (setv exp (read f))
-   ...            (print "OHY" exp)
-   ...            (eval exp))
-   ...     (except [e EOFError]
-   ...            (print "EOF!"))))
-   OHY ('print' 'hello')
-   hello
-   OHY ('print' 'hyfriends!')
-   hyfriends!
-   EOF!
+    => (with [f (open "example.hy" "w")]
+    ...  (.write f "(print 'hello)\n(print \"hyfriends!\")"))
+    35
+    => (with [f (open "example.hy")]
+    ...  (try (while True
+    ...         (setv exp (read f))
+    ...         (print "OHY" exp)
+    ...         (eval exp))
+    ...       (except [e EOFError]
+    ...         (print "EOF!"))))
+    OHY HyExpression([
+      HySymbol('print'),
+      HyExpression([
+        HySymbol('quote'),
+        HySymbol('hello')])])
+    hello
+    OHY HyExpression([
+      HySymbol('print'),
+      HyString('hyfriends!')])
+    hyfriends!
+    EOF!
 
 read-str
 --------
@@ -1224,11 +1238,12 @@ string:
 
 .. code-block:: hy
 
-   => (read-str "(print 1)")
-   (u'print' 1L)
-   => (eval (read-str "(print 1)"))
-   1
-   =>
+    => (read-str "(print 1)")
+    HyExpression([
+      HySymbol('print'),
+      HyInteger(1)])
+    => (eval (read-str "(print 1)"))
+    1
 
 .. _remove-fn:
 
@@ -1352,6 +1367,22 @@ Returns an iterator from *coll* as long as *pred* returns ``True``.
    => (list (take-while neg? [ 1 2 3 -4 5]))
    []
 
+.. _unmangle-fn:
+
+unmangle
+--------
+
+Usage: ``(unmangle x)``
+
+Stringify the input and return a string that would :ref:`mangle <mangling>` to
+it. Note that this isn't a one-to-one operation, and nor is ``mangle``, so
+``mangle`` and ``unmangle`` don't always round-trip.
+
+.. code-block:: hylang
+
+    => (unmangle "foo_bar")
+    'foo-bar'
+
 Included itertools
 ==================
 
@@ -1368,7 +1399,8 @@ are available. Some of their names have been changed:
   - ``groupby`` has been changed to ``group-by``
 
   - ``takewhile`` has been changed to ``take-while``
-  
+
   - ``dropwhile`` has been changed to ``drop-while``
-  
+
   - ``filterfalse`` has been changed to ``remove``
+

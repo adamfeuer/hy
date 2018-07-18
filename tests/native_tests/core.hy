@@ -1,4 +1,4 @@
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -170,6 +170,49 @@
   (assert-false (every? even? [2 4 5]))
   (assert-true (every? even? [])))
 
+(setv globalvar 1)
+(defn test-exec []
+  (setv localvar 1)
+  (setv code "
+result['localvar in locals'] = 'localvar' in locals()
+result['localvar in globals'] = 'localvar' in globals()
+result['globalvar in locals'] = 'globalvar' in locals()
+result['globalvar in globals'] = 'globalvar' in globals()
+result['x in locals'] = 'x' in locals()
+result['x in globals'] = 'x' in globals()
+result['y in locals'] = 'y' in locals()
+result['y in globals'] = 'y' in globals()")
+
+  (setv result {})
+  (exec code)
+  (assert-true (get result "localvar in locals"))
+  (assert-false (get result "localvar in globals"))
+  (assert-false (get result "globalvar in locals"))
+  (assert-true (get result "globalvar in globals"))
+  (assert-false (or
+    (get result "x in locals") (get result "x in globals")
+    (get result "y in locals") (get result "y in globals")))
+
+  (setv result {})
+  (exec code {"x" 1 "result" result})
+  (assert-false (or
+    (get result "localvar in locals") (get result "localvar in globals")
+    (get result "globalvar in locals") (get result "globalvar in globals")))
+  (assert-true (and
+    (get result "x in locals") (get result "x in globals")))
+  (assert-false (or
+    (get result "y in locals") (get result "y in globals")))
+
+  (setv result {})
+  (exec code {"x" 1 "result" result} {"y" 1})
+  (assert-false (or
+    (get result "localvar in locals") (get result "localvar in globals")
+    (get result "globalvar in locals") (get result "globalvar in globals")))
+  (assert-false (get result "x in locals"))
+  (assert-true (get result "x in globals"))
+  (assert-true (get result "y in locals"))
+  (assert-false (get result "y in globals")))
+
 (defn test-filter []
   "NATIVE: testing the filter function"
   (setv res (list (filter pos? [ 1 2 3 -4 5])))
@@ -229,10 +272,10 @@
   (import [hy.models [HySymbol]])
   (setv s1 (gensym))
   (assert (isinstance s1 HySymbol))
-  (assert (= 0 (.find s1 ":G_")))
+  (assert (= 0 (.find s1 "_;G|")))
   (setv s2 (gensym "xx"))
   (setv s3 (gensym "xx"))
-  (assert (= 0 (.find s2 ":xx_")))
+  (assert (= 0 (.find s2 "_;xx|")))
   (assert (not (= s2 s3)))
   (assert (not (= (str s2) (str s3)))))
 
@@ -608,14 +651,14 @@
 
 (defn test-complement []
   "NATIVE: test complement"
-  (def helper (complement identity))
+  (setv helper (complement identity))
 
   (assert-true (helper False))
   (assert-false (helper True)))
 
 (defn test-constantly []
   "NATIVE: test constantly"
-  (def helper (constantly 42))
+  (setv helper (constantly 42))
 
   (assert-true (= (helper) 42))
   (assert-true (= (helper 1 2 3) 42))
@@ -635,3 +678,7 @@
                 [1 6 21])
   (assert-equal ((juxt identity) 42)
                 [42]))
+
+(defn test-comment []
+  (assert-none (comment <h1>This is merely a comment.</h1>
+                        <p> Move along. (Nothing to see here.)</p>)))

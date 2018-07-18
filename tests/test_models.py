@@ -1,10 +1,13 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
+import copy
+import hy
+from clint.textui.colored import clean
 from hy._compat import long_type, str_type
 from hy.models import (wrap_value, replace_hy_obj, HyString, HyInteger, HyList,
-                       HyDict, HySet, HyExpression, HyCons)
+                       HyDict, HySet, HyExpression, HyComplex, HyFloat, pretty)
 
 
 def test_wrap_long_type():
@@ -92,36 +95,101 @@ def test_set():
     assert hyset == [3, 1, 2, 2]
 
 
-def test_cons_slicing():
-    """Check that cons slicing works as expected"""
-    cons = HyCons("car", "cdr")
-    assert cons[0] == "car"
-    assert cons[1:] == "cdr"
-    try:
-        cons[:]
-        assert True is False
-    except IndexError:
-        pass
+def test_number_model_copy():
+    i = HyInteger(42)
+    assert (i == copy.copy(i))
+    assert (i == copy.deepcopy(i))
 
-    try:
-        cons[1]
-        assert True is False
-    except IndexError:
-        pass
+    f = HyFloat(42.)
+    assert (f == copy.copy(f))
+    assert (f == copy.deepcopy(f))
+
+    c = HyComplex(42j)
+    assert (c == copy.copy(c))
+    assert (c == copy.deepcopy(c))
 
 
-def test_cons_replacing():
-    """Check that assigning to a cons works as expected"""
-    cons = HyCons("foo", "bar")
-    cons[0] = "car"
+PRETTY_STRINGS = {
+    k % ('[1.0] {1.0} (1.0) #{1.0}',):
+        v.format("""
+  HyList([
+    HyFloat(1.0)]),
+  HyDict([
+    HyFloat(1.0)  # odd
+  ]),
+  HyExpression([
+    HyFloat(1.0)]),
+  HySet([
+    HyFloat(1.0)])""")
+    for k, v in {'[%s]': 'HyList([{}])',
+                 '#{%s}': 'HySet([{}])'}.items()}
 
-    assert cons == HyCons("car", "bar")
+PRETTY_STRINGS.update({
+    '{[1.0] {1.0} (1.0) #{1.0}}':
+    """HyDict([
+  HyList([
+    HyFloat(1.0)]),
+  HyDict([
+    HyFloat(1.0)  # odd
+  ])
+  ,
+  HyExpression([
+    HyFloat(1.0)]),
+  HySet([
+    HyFloat(1.0)])
+  ])"""
+    ,
+    '[1.0 1j [] {} () #{}]':
+        """HyList([
+  HyFloat(1.0),
+  HyComplex(1j),
+  HyList(),
+  HyDict(),
+  HyExpression(),
+  HySet()])"""
+    ,
+    '{{1j 2j} {1j 2j [][1j]} {[1j][] 1j 2j} {[1j][1j]}}':
+        """HyDict([
+  HyDict([
+    HyComplex(1j), HyComplex(2j)]),
+  HyDict([
+    HyComplex(1j), HyComplex(2j),
+    HyList(),
+    HyList([
+      HyComplex(1j)])
+    ])
+  ,
+  HyDict([
+    HyList([
+      HyComplex(1j)]),
+    HyList()
+    ,
+    HyComplex(1j), HyComplex(2j)]),
+  HyDict([
+    HyList([
+      HyComplex(1j)]),
+    HyList([
+      HyComplex(1j)])
+    ])
+  ])"""})
 
-    cons[1:] = "cdr"
-    assert cons == HyCons("car", "cdr")
 
-    try:
-        cons[:] = "foo"
-        assert True is False
-    except IndexError:
-        pass
+def test_compound_model_repr():
+    HY_LIST_MODELS = (HyExpression, HyDict, HySet, HyList)
+    with pretty(False):
+        for model in HY_LIST_MODELS:
+            assert eval(repr(model())).__class__ is model
+            assert eval(repr(model([1, 2]))) == model([1, 2])
+            assert eval(repr(model([1, 2, 3]))) == model([1, 2, 3])
+        for k, v in PRETTY_STRINGS.items():
+            # `str` should be pretty, even under `pretty(False)`.
+            assert clean(str(hy.read_str(k))) == v
+        for k in PRETTY_STRINGS.keys():
+            assert eval(repr(hy.read_str(k))) == hy.read_str(k)
+    with pretty(True):
+        for model in HY_LIST_MODELS:
+            assert eval(clean(repr(model()))).__class__ is model
+            assert eval(clean(repr(model([1, 2])))) == model([1, 2])
+            assert eval(clean(repr(model([1, 2, 3])))) == model([1, 2, 3])
+        for k, v in PRETTY_STRINGS.items():
+            assert clean(repr(hy.read_str(k))) == v

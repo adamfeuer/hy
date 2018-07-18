@@ -1,5 +1,5 @@
 ;;; Get a frozenset of Hy reserved words
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -13,12 +13,11 @@
   The result of the first call is cached."
   (global _cache)
   (if (is _cache None) (do
-    (setv unmangle (. sys.modules ["hy.lex.parser"] hy_symbol_unmangle))
     (setv _cache (frozenset (map unmangle (+
-      hy.core.language.*exports*
-      hy.core.shadow.*exports*
+      hy.core.language.EXPORTS
+      hy.core.shadow.EXPORTS
       (list (.keys (get hy.macros._hy_macros None)))
       keyword.kwlist
-      (list-comp k [k (.keys hy.compiler.-compile-table)]
-        (isinstance k hy._compat.string-types))))))))
+      (list (.keys hy.compiler._special_form_compilers))
+      (list hy.compiler._bad_roots)))))))
   _cache)

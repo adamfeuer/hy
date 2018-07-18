@@ -39,26 +39,44 @@ Compound Models
 Parenthesized and bracketed lists are parsed as compound models by the
 Hy parser.
 
+Hy uses pretty-printing reprs for its compound models by default.
+If this is causing issues,
+it can be turned off globally by setting ``hy.models.PRETTY`` to ``False``,
+or temporarily by using the ``hy.models.pretty`` context manager.
+
+Hy also attempts to color pretty reprs using ``clint.textui.colored``.
+This module has a flag to disable coloring,
+and a method ``clean`` to strip colored strings of their color tags.
+
+.. _hysequence:
+
+HySequence
+~~~~~~~~~~
+
+``hy.models.HySequence`` is the abstract base class of "iterable" Hy
+models, such as HyExpression and HyList.
+
+Adding a HySequence to another iterable object reuses the class of the
+left-hand-side object, a useful behavior when you want to concatenate Hy
+objects in a macro, for instance.
+
+
 .. _hylist:
 
 HyList
-~~~~~~
+~~~~~~~~~~~~
 
-``hy.models.HyList`` is the base class of "iterable" Hy models. Its
-basic use is to represent bracketed ``[]`` lists, which, when used as a
-top-level expression, translate to Python list literals in the
-compilation phase.
+``hy.models.HyExpression`` is a :ref:`HySequence` for bracketed ``[]``
+lists, which, when used as a top-level expression, translate to Python
+list literals in the compilation phase.
 
-Adding a HyList to another iterable object reuses the class of the
-left-hand-side object, a useful behavior when you want to concatenate Hy
-objects in a macro, for instance.
 
 .. _hyexpression:
 
 HyExpression
 ~~~~~~~~~~~~
 
-``hy.models.HyExpression`` inherits :ref:`HyList` for
+``hy.models.HyExpression`` inherits :ref:`HySequence` for
 parenthesized ``()`` expressions. The compilation result of those
 expressions depends on the first element of the list: the compiler
 dispatches expressions between compiler special-forms, user-defined
@@ -69,8 +87,8 @@ macros, and regular Python function calls.
 HyDict
 ~~~~~~
 
-``hy.models.HyDict`` inherits :ref:`HyList` for curly-bracketed ``{}``
-expressions, which compile down to a Python dictionary literal.
+``hy.models.HyDict`` inherits :ref:`HySequence` for curly-bracketed
+``{}`` expressions, which compile down to a Python dictionary literal.
 
 The decision of using a list instead of a dict as the base class for
 ``HyDict`` allows easier manipulation of dicts in macros, with the added
@@ -101,17 +119,22 @@ the following order:
 HyString
 ~~~~~~~~
 
-``hy.models.HyString`` is the base class of string-equivalent Hy
-models. It also represents double-quoted string literals, ``""``, which
-compile down to unicode string literals in Python. ``HyStrings`` inherit
-unicode objects in Python 2, and string objects in Python 3 (and are
-therefore not encoding-dependent).
+``hy.models.HyString`` represents string literals (including bracket strings),
+which compile down to unicode string literals in Python. ``HyStrings`` inherit
+unicode objects in Python 2, and string objects in Python 3 (and are therefore
+not encoding-dependent).
 
-``HyString`` based models are immutable.
+``HyString``\s are immutable.
 
 Hy literal strings can span multiple lines, and are considered by the
 parser as a single unit, respecting the Python escapes for unicode
 strings.
+
+``HyString``\s have an attribute ``brackets`` that stores the custom
+delimiter used for a bracket string (e.g., ``"=="`` for ``#[==[hello
+world]==]`` and the empty string for ``#[[hello world]]``).
+``HyString``\s that are not produced by bracket strings have their
+``brackets`` set to ``None``.
 
 HyBytes
 ~~~~~~~
@@ -139,20 +162,12 @@ valid numeric python literals will be turned into their Hy counterpart.
 HySymbol
 ~~~~~~~~
 
-``hy.models.HySymbol`` is the model used to represent symbols
-in the Hy language. It inherits :ref:`HyString`.
+``hy.models.HySymbol`` is the model used to represent symbols in the Hy
+language. Like ``HyString``, it inherits from ``str`` (or ``unicode`` on Python
+2).
 
-``HySymbol`` objects are mangled in the parsing phase, to help Python
-interoperability:
-
- - Symbols surrounded by asterisks (``*``) are turned into uppercase;
- - Dashes (``-``) are turned into underscores (``_``);
- - One trailing question mark (``?``) is turned into a leading ``is_``.
-
-Caveat: as the mangling is done during the parsing phase, it is possible
-to programmatically generate HySymbols that can't be generated with Hy
-source code. Such a mechanism is used by :ref:`gensym` to generate
-"uninterned" symbols.
+Symbols are :ref:`mangled <mangling>` when they are compiled
+to Python variable names.
 
 .. _hykeyword:
 
@@ -161,39 +176,6 @@ HyKeyword
 
 ``hy.models.HyKeyword`` represents keywords in Hy. Keywords are
 symbols starting with a ``:``. See :ref:`syntax-keywords`.
-
-.. _hycons:
-
-Cons Cells
-==========
-
-``hy.models.HyCons`` is a representation of Python-friendly `cons
-cells`_.  Cons cells are especially useful to mimic features of "usual"
-LISP variants such as Scheme or Common Lisp.
-
-.. _cons cells: https://en.wikipedia.org/wiki/Cons
-
-A cons cell is a 2-item object, containing a ``car`` (head) and a
-``cdr`` (tail). In some Lisp variants, the cons cell is the fundamental
-building block, and S-expressions are actually represented as linked
-lists of cons cells. This is not the case in Hy, as the usual
-expressions are made of Python lists wrapped in a
-``HyExpression``. However, the ``HyCons`` mimics the behavior of
-"usual" Lisp variants thusly:
-
- - ``(cons something None)`` is ``(HyExpression [something])``
- - ``(cons something some-list)`` is ``((type some-list) (+ [something]
-   some-list))`` (if ``some-list`` inherits from ``list``).
- - ``(get (cons a b) 0)`` is ``a``
- - ``(cut (cons a b) 1)`` is ``b``
-
-Hy supports a dotted-list syntax, where ``'(a . b)`` means ``(cons 'a
-'b)`` and ``'(a b . c)`` means ``(cons 'a (cons 'b 'c))``. If the
-compiler encounters a cons cell at the top level, it raises a
-compilation error.
-
-``HyCons`` wraps the passed arguments (car and cdr) in Hy types, to ease
-the manipulation of cons cells in a macro context.
 
 Hy Internal Theory
 ==================
@@ -325,7 +307,7 @@ Since they have no "value" to Python, this makes working in Hy hard, since
 doing something like ``(print (if True True False))`` is not just common, it's
 expected.
 
-As a result, we auto-mangle things using a ``Result`` object, where we offer
+As a result, we reconfigure things using a ``Result`` object, where we offer
 up any ``ast.stmt`` that need to get run, and a single ``ast.expr`` that can
 be used to get the value of whatever was just run. Hy does this by forcing
 assignment to things while running.
@@ -337,17 +319,17 @@ As example, the Hy::
 Will turn into::
 
     if True:
-        _mangled_name_here = True
+        _temp_name_here = True
     else:
-        _mangled_name_here = False
+        _temp_name_here = False
 
-    print _mangled_name_here
+    print(_temp_name_here)
 
 
 OK, that was a bit of a lie, since we actually turn that statement
 into::
 
-    print True if True else False
+    print(True if True else False)
 
 By forcing things into an ``ast.expr`` if we can, but the general idea holds.
 
@@ -430,10 +412,11 @@ so our re-written ``nif`` would look like:
 
    (defmacro nif [expr pos-form zero-form neg-form]
      (with-gensyms [g]
-       `(setv [~g ~expr])
-       `(cond [(pos? ~g) ~pos-form]
-              [(zero? ~g) ~zero-form]
-              [(neg? ~g) ~neg-form])))
+       `(do
+          (setv ~g ~expr)
+          (cond [(pos? ~g) ~pos-form]
+                [(zero? ~g) ~zero-form]
+                [(neg? ~g) ~neg-form]))))
 
 Finally, though we can make a new macro that does all this for us. :ref:`defmacro/g!`
 will take all symbols that begin with ``g!`` and automatically call ``gensym`` with the

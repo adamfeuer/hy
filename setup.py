@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
@@ -30,7 +30,7 @@ class Install(install):
                         "." + filename[:-len(".hy")])
         install.run(self)
 
-install_requires = ['rply>=0.7.0', 'astor>=0.5', 'clint>=0.4']
+install_requires = ['rply>=0.7.6', 'astor', 'funcparserlib>=0.3.6', 'clint>=0.4']
 if os.name == 'nt':
     install_requires.append('pyreadline>=2.1')
 
@@ -40,6 +40,9 @@ setup(
     name=PKG,
     version=__version__,
     install_requires=install_requires,
+    dependency_links=[
+        'git+https://github.com/berkerpeksag/astor.git#egg=astor-0.7.0'
+    ],
     cmdclass=dict(install=Install),
     entry_points={
         'console_scripts': [
@@ -57,6 +60,9 @@ setup(
         'hy.core': ['*.hy', '__pycache__/*'],
         'hy.extra': ['*.hy', '__pycache__/*'],
     },
+    data_files=[
+        ('get_version', ['get_version.py'])
+    ],
     author="Paul Tagliamonte",
     author_email="tag@pault.ag",
     long_description=long_description,
@@ -75,9 +81,10 @@ setup(
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.3",
         "Programming Language :: Python :: 3.4",
         "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
         "Topic :: Software Development :: Code Generators",
         "Topic :: Software Development :: Compilers",
         "Topic :: Software Development :: Libraries",

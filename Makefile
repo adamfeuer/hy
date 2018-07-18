@@ -46,7 +46,7 @@ tox: venv
 	tox
 
 flake:
-	flake8 hy tests --ignore=E121,E123,E126,E226,E24,E704,W503,E305
+	flake8 hy tests --ignore=E121,E123,E126,E226,E24,E704,W503,E302,E305,E701
 
 clear:
 	clear
@@ -64,7 +64,7 @@ ifeq (Python 2.6,$(findstring Python 2.6,$(shell python -V 2>&1)))
 endif
 	$(pip) install -r requirements-travis.txt
 	$(pip) install coveralls
-	$(pip) install --allow-all-external -e .
+	$(pip) install -e .
 
 coveralls:
 	$(coveralls)

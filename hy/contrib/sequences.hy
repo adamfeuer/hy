@@ -1,4 +1,4 @@
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -11,8 +11,8 @@
    --getitem-- (fn [self n]
                  "get nth item of sequence"
                  (if (hasattr n "start")
-                   (genexpr (get self x) [x (range n.start n.stop
-                                                   (or n.step 1))])
+                   (gfor x (range n.start n.stop (or n.step 1))
+                         (get self x))
                    (do (when (neg? n)
                          ; Call (len) to force the whole
                          ; sequence to be evaluated.
@@ -29,15 +29,15 @@
               (try (while True
                      (yield (get self index))
                      (setv index (inc index)))
-                   (except [_ IndexError]
-                     (raise StopIteration))))
+                   (except [IndexError]
+                     (return))))
    --len-- (fn [self]
              "length of the sequence, dangerous for infinite sequences"
              (setv index (. self high-water))
              (try (while True
                     (get self index)
                     (setv index (inc index)))
-                  (except [_ IndexError]
+                  (except [IndexError]
                     (len (. self cache)))))
    max-items-in-repr 10
    --str-- (fn [self]
@@ -55,7 +55,7 @@
   `(Sequence (fn ~param (do ~@seq-code))))
 
 (defmacro defseq [seq-name param &rest seq-code]
-  `(def ~seq-name (Sequence (fn ~param (do ~@seq-code)))))
+  `(setv ~seq-name (Sequence (fn ~param (do ~@seq-code)))))
 
 (defn end-sequence []
   "raise IndexError exception to signal end of sequence"

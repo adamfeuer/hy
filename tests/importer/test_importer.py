@@ -1,13 +1,16 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
+import hy
 from hy.importer import (import_file_to_module, import_buffer_to_ast,
                          MetaLoader, get_bytecode_path)
 from hy.errors import HyTypeError
 import os
 import ast
 import tempfile
+from fractions import Fraction
+import pytest
 
 
 def test_basics():
@@ -48,6 +51,8 @@ def test_import_error_reporting():
     assert _import_error_test() is not None
 
 
+@pytest.mark.skipif(os.environ.get('PYTHONDONTWRITEBYTECODE'),
+                    reason="Bytecode generation is suppressed")
 def test_import_autocompiles():
     "Test that (import) byte-compiles the module."
 
@@ -64,3 +69,20 @@ def test_import_autocompiles():
 
     os.remove(f.name)
     os.remove(get_bytecode_path(f.name))
+
+
+def test_eval():
+    def eval_str(s):
+        return hy.eval(hy.read_str(s))
+
+    assert eval_str('[1 2 3]') == [1, 2, 3]
+    assert eval_str('{"dog" "bark" "cat" "meow"}') == {
+        'dog': 'bark', 'cat': 'meow'}
+    assert eval_str('(, 1 2 3)') == (1, 2, 3)
+    assert eval_str('#{3 1 2}') == {1, 2, 3}
+    assert eval_str('1/2') == Fraction(1, 2)
+    assert eval_str('(.strip " fooooo   ")') == 'fooooo'
+    assert eval_str(
+        '(if True "this is if true" "this is if false")') == "this is if true"
+    assert eval_str('(lfor num (range 100) :if (= (% num 2) 1) (pow num 2))') == [
+        pow(num, 2) for num in range(100) if num % 2 == 1]

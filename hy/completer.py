@@ -1,4 +1,4 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
@@ -24,10 +24,11 @@ except ImportError:
     except ImportError:
         docomplete = False
 
-if sys.platform == 'darwin' and 'libedit' in readline.__doc__:
-    readline_bind = "bind ^I rl_complete"
-else:
-    readline_bind = "tab: complete"
+if docomplete:
+    if sys.platform == 'darwin' and 'libedit' in readline.__doc__:
+        readline_bind = "bind ^I rl_complete"
+    else:
+        readline_bind = "tab: complete"
 
 
 class Completer(object):
@@ -36,15 +37,15 @@ class Completer(object):
         if not isinstance(namespace, dict):
             raise TypeError('namespace must be a dictionary')
         self.namespace = namespace
-        self.path = [hy.compiler._compile_table,
+        self.path = [hy.compiler._special_form_compilers,
                      builtins.__dict__,
                      hy.macros._hy_macros[None],
                      namespace]
-        self.sharp_path = [hy.macros._hy_sharp[None]]
+        self.tag_path = [hy.macros._hy_tag[None]]
         if '__name__' in namespace:
             module_name = namespace['__name__']
             self.path.append(hy.macros._hy_macros[module_name])
-            self.sharp_path.append(hy.macros._hy_sharp[module_name])
+            self.tag_path.append(hy.macros._hy_tag[module_name])
 
     def attr_matches(self, text):
         # Borrowed from IPython's completer
@@ -81,10 +82,10 @@ class Completer(object):
                         matches.append(k)
         return matches
 
-    def sharp_matches(self, text):
+    def tag_matches(self, text):
         text = text[1:]
         matches = []
-        for p in self.sharp_path:
+        for p in self.tag_path:
             for k in p.keys():
                 if isinstance(k, string_types):
                     if k.startswith(text):
@@ -93,7 +94,7 @@ class Completer(object):
 
     def complete(self, text, state):
         if text.startswith("#"):
-            matches = self.sharp_matches(text)
+            matches = self.tag_matches(text)
         elif "." in text:
             matches = self.attr_matches(text)
         else:
@@ -124,7 +125,8 @@ def completion(completer=None):
 
         readline.parse_and_bind(readline_bind)
 
-    yield
-
-    if docomplete:
-        readline.write_history_file(history)
+    try:
+        yield
+    finally:
+        if docomplete:
+            readline.write_history_file(history)

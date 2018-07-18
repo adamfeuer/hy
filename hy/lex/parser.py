@@ -1,62 +1,97 @@
-# Copyright 2017 the authors.
+# -*- encoding: utf-8 -*-
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
+from __future__ import unicode_literals
+
 from functools import wraps
-from ast import literal_eval
+import re, unicodedata
 
 from rply import ParserGenerator
 
-from hy._compat import PY3, str_type
-from hy.models import (HyBytes, HyComplex, HyCons, HyDict, HyExpression,
-                       HyFloat, HyInteger, HyKeyword, HyList, HySet, HyString,
-                       HySymbol)
+from hy._compat import str_type, isidentifier, UCS4
+from hy.models import (HyBytes, HyComplex, HyDict, HyExpression, HyFloat,
+                       HyInteger, HyKeyword, HyList, HySet, HyString, HySymbol)
 from .lexer import lexer
 from .exceptions import LexException, PrematureEndOfInput
 
 
-pg = ParserGenerator(
-    [rule.name for rule in lexer.rules] + ['$end'],
-    cache_id="hy_parser"
-)
+pg = ParserGenerator([rule.name for rule in lexer.rules] + ['$end'])
+
+mangle_delim = 'X'
+
+def unicode_to_ucs4iter(ustr):
+    # Covert a unicode string to an iterable object,
+    # elements in the object are single USC-4 unicode characters
+    if UCS4:
+        return ustr
+    ucs4_list = list(ustr)
+    for i, u in enumerate(ucs4_list):
+        if 0xD7FF < ord(u) < 0xDC00:
+            ucs4_list[i] += ucs4_list[i + 1]
+            del ucs4_list[i + 1]
+    return ucs4_list
+
+def mangle(s):
+    """Stringify the argument and convert it to a valid Python identifier
+    according to Hy's mangling rules."""
+    def unicode_char_to_hex(uchr):
+        # Covert a unicode char to hex string, without prefix
+        return uchr.encode('unicode-escape').decode('utf-8').lstrip('\\U').lstrip('\\u').lstrip('0')
+
+    assert s
+
+    s = str_type(s)
+    s = s.replace("-", "_")
+    s2 = s.lstrip('_')
+    leading_underscores = '_' * (len(s) - len(s2))
+    s = s2
+
+    if s.endswith("?"):
+        s = 'is_' + s[:-1]
+    if not isidentifier(leading_underscores + s):
+        # Replace illegal characters with their Unicode character
+        # names, or hexadecimal if they don't have one.
+        s = 'hyx_' + ''.join(
+            c
+               if c != mangle_delim and isidentifier('S' + c)
+                 # We prepend the "S" because some characters aren't
+                 # allowed at the start of an identifier.
+               else '{0}{1}{0}'.format(mangle_delim,
+                   unicodedata.name(c, '').lower().replace('-', 'H').replace(' ', '_')
+                   or 'U{}'.format(unicode_char_to_hex(c)))
+            for c in unicode_to_ucs4iter(s))
+
+    s = leading_underscores + s
+    assert isidentifier(s)
+    return s
 
 
-def hy_symbol_mangle(p):
-    if p.startswith("*") and p.endswith("*") and p not in ("*", "**"):
-        p = p[1:-1].upper()
+def unmangle(s):
+    """Stringify the argument and try to convert it to a pretty unmangled
+    form. This may not round-trip, because different Hy symbol names can
+    mangle to the same Python identifier."""
 
-    if "-" in p and p != "-":
-        p = p.replace("-", "_")
+    s = str_type(s)
 
-    if p.endswith("?") and p != "?":
-        p = "is_%s" % (p[:-1])
+    s2 = s.lstrip('_')
+    leading_underscores = len(s) - len(s2)
+    s = s2
 
-    if p.endswith("!") and p != "!":
-        p = "%s_bang" % (p[:-1])
+    if s.startswith('hyx_'):
+        s = re.sub('{0}(U)?([_a-z0-9H]+?){0}'.format(mangle_delim),
+            lambda mo:
+               chr(int(mo.group(2), base=16))
+               if mo.group(1)
+               else unicodedata.lookup(
+                   mo.group(2).replace('_', ' ').replace('H', '-').upper()),
+            s[len('hyx_'):])
+    if s.startswith('is_'):
+        s = s[len("is_"):] + "?"
+    s = s.replace('_', '-')
 
-    return p
-
-
-def hy_symbol_unmangle(p):
-    # hy_symbol_mangle is one-way, so this can't be perfect.
-    # But it can be useful till we have a way to get the original
-    # symbol (https://github.com/hylang/hy/issues/360).
-    p = str_type(p)
-
-    if p.endswith("_bang") and p != "_bang":
-        p = p[:-len("_bang")] + "!"
-
-    if p.startswith("is_") and p != "is_":
-        p = p[len("is_"):] + "?"
-
-    if "_" in p and p != "_":
-        p = p.replace("_", "-")
-
-    if (all([c.isalpha() and c.isupper() or c == '_' for c in p]) and
-            any([c.isalpha() for c in p])):
-        p = '*' + p.lower() + '*'
-
-    return p
+    return '-' * leading_underscores + s
 
 
 def set_boundaries(fun):
@@ -90,23 +125,13 @@ def set_quote_boundaries(fun):
     return wrapped
 
 
-@pg.production("main : HASHBANG real_main")
-def main_hashbang(p):
-    return p[1]
-
-
-@pg.production("main : real_main")
+@pg.production("main : list_contents")
 def main(p):
     return p[0]
 
 
-@pg.production("real_main : list_contents")
-def real_main(p):
-    return p[0]
-
-
-@pg.production("real_main : $end")
-def real_main_empty(p):
+@pg.production("main : $end")
+def main_empty(p):
     return []
 
 
@@ -122,28 +147,6 @@ def reject_spurious_dots(*items):
 @pg.production("paren : LPAREN list_contents RPAREN")
 @set_boundaries
 def paren(p):
-    cont = p[1]
-
-    # Dotted lists are expressions of the form
-    # (a b c . d)
-    # that evaluate to nested cons cells of the form
-    # (a . (b . (c . d)))
-    if len(cont) >= 3 and isinstance(cont[-2], HySymbol) and cont[-2] == ".":
-
-        reject_spurious_dots(cont[:-2], cont[-1:])
-
-        if len(cont) == 3:
-            # Two-item dotted list: return the cons cell directly
-            return HyCons(cont[0], cont[2])
-        else:
-            # Return a nested cons cell
-            return HyCons(cont[0], paren([p[0], cont[1:], p[2]]))
-
-    # Warn preemptively on a malformed dotted list.
-    # Only check for dots after the first item to allow for a potential
-    # attribute accessor shorthand
-    reject_spurious_dots(cont[1:])
-
     return HyExpression(p[1])
 
 
@@ -163,6 +166,17 @@ def list_contents_single(p):
     return [p[0]]
 
 
+@pg.production("list_contents : DISCARD term discarded_list_contents")
+def list_contents_empty(p):
+    return []
+
+
+@pg.production("discarded_list_contents : DISCARD term discarded_list_contents")
+@pg.production("discarded_list_contents :")
+def discarded_list_contents(p):
+    pass
+
+
 @pg.production("term : identifier")
 @pg.production("term : paren")
 @pg.production("term : dict")
@@ -171,6 +185,11 @@ def list_contents_single(p):
 @pg.production("term : string")
 def term(p):
     return p[0]
+
+
+@pg.production("term : DISCARD term term")
+def term_discard(p):
+    return p[2]
 
 
 @pg.production("term : QUOTE term")
@@ -194,16 +213,33 @@ def term_unquote(p):
 @pg.production("term : UNQUOTESPLICE term")
 @set_quote_boundaries
 def term_unquote_splice(p):
-    return HyExpression([HySymbol("unquote_splice"), p[1]])
+    return HyExpression([HySymbol("unquote-splice"), p[1]])
+
+
+@pg.production("term : HASHSTARS term")
+@set_quote_boundaries
+def term_hashstars(p):
+    n_stars = len(p[0].getstr()[1:])
+    if n_stars == 1:
+        sym = "unpack-iterable"
+    elif n_stars == 2:
+        sym = "unpack-mapping"
+    else:
+        raise LexException(
+            "Too many stars in `#*` construct (if you want to unpack a symbol "
+            "beginning with a star, separate it with whitespace)",
+            p[0].source_pos.lineno, p[0].source_pos.colno)
+    return HyExpression([HySymbol(sym), p[1]])
 
 
 @pg.production("term : HASHOTHER term")
 @set_quote_boundaries
 def hash_other(p):
-    st = p[0].getstr()[1]
+    # p == [(Token('HASHOTHER', '#foo'), bar)]
+    st = p[0].getstr()[1:]
     str_object = HyString(st)
     expr = p[1]
-    return HyExpression([HySymbol("dispatch_sharp_macro"), str_object, expr])
+    return HyExpression([HySymbol("dispatch-tag-macro"), str_object, expr])
 
 
 @pg.production("set : HLCURLY list_contents RCURLY")
@@ -242,38 +278,17 @@ def t_empty_list(p):
     return HyList([])
 
 
-if PY3:
-    def uni_hystring(s):
-        return HyString(literal_eval(s))
-
-    def hybytes(s):
-        return HyBytes(literal_eval('b'+s))
-
-else:
-    def uni_hystring(s):
-        return HyString(literal_eval('u'+s))
-
-    def hybytes(s):
-        return HyBytes(literal_eval(s))
-
-
 @pg.production("string : STRING")
 @set_boundaries
 def t_string(p):
-    # remove trailing quote
-    s = p[0].value[:-1]
-    # get the header
-    header, s = s.split('"', 1)
-    # remove unicode marker (this is redundant because Hy string
-    # literals already, by default, generate Unicode literals
-    # under Python 2)
-    header = header.replace("u", "")
-    # remove bytes marker, since we'll need to exclude it for Python 2
-    is_bytestring = "b" in header
-    header = header.replace("b", "")
-    # build python string
-    s = header + '"""' + s + '"""'
-    return (hybytes if is_bytestring else uni_hystring)(s)
+    # Replace the single double quotes with triple double quotes to allow
+    # embedded newlines.
+    try:
+        s = eval(p[0].value.replace('"', '"""', 1)[:-1] + '"""')
+    except SyntaxError:
+        raise LexException("Can't convert {} to a HyString".format(p[0].value),
+            p[0].source_pos.lineno, p[0].source_pos.colno)
+    return (HyString if isinstance(s, str_type) else HyBytes)(s)
 
 
 @pg.production("string : PARTIAL_STRING")
@@ -282,10 +297,37 @@ def t_partial_string(p):
     raise PrematureEndOfInput("Premature end of input")
 
 
+bracket_string_re = next(r.re for r in lexer.rules if r.name == 'BRACKETSTRING')
+@pg.production("string : BRACKETSTRING")
+@set_boundaries
+def t_bracket_string(p):
+    m = bracket_string_re.match(p[0].value)
+    delim, content = m.groups()
+    return HyString(content, brackets=delim)
+
+
 @pg.production("identifier : IDENTIFIER")
 @set_boundaries
 def t_identifier(p):
     obj = p[0].value
+
+    val = symbol_like(obj)
+    if val is not None:
+        return val
+
+    if "." in obj and symbol_like(obj.split(".", 1)[0]) is not None:
+        # E.g., `5.attr` or `:foo.attr`
+        raise LexException(
+            'Cannot access attribute on anything other than a name (in '
+            'order to get attributes of expressions, use '
+            '`(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+            p[0].source_pos.lineno, p[0].source_pos.colno)
+
+    return HySymbol(obj)
+
+
+def symbol_like(obj):
+    "Try to interpret `obj` as a number or keyword."
 
     try:
         return HyInteger(obj)
@@ -311,12 +353,8 @@ def t_identifier(p):
         except ValueError:
             pass
 
-    if obj.startswith(":"):
-        return HyKeyword(obj)
-
-    obj = ".".join([hy_symbol_mangle(part) for part in obj.split(".")])
-
-    return HySymbol(obj)
+    if obj.startswith(":") and "." not in obj:
+        return HyKeyword(obj[1:])
 
 
 @pg.error

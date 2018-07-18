@@ -9,6 +9,8 @@ Contents:
 
    cli
    interop
+   syntax
    api
    core
+   model_patterns
    internals

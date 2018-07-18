@@ -1,4 +1,4 @@
-# Copyright 2017 the authors.
+# Copyright 2018 the authors.
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
@@ -11,12 +11,12 @@ import sys
 import os
 import importlib
 
-import astor.codegen
+import astor.code_gen
 
 import hy
 
-from hy.lex import LexException, PrematureEndOfInput, tokenize
-from hy.lex.parser import hy_symbol_mangle
+from hy.lex import LexException, PrematureEndOfInput
+from hy.lex.parser import mangle
 from hy.compiler import HyTypeError
 from hy.importer import (hy_eval, import_buffer_to_module,
                          import_file_to_ast, import_file_to_hst,
@@ -63,31 +63,40 @@ class HyREPL(code.InteractiveConsole):
         elif callable(output_fn):
             self.output_fn = output_fn
         else:
-            f = hy_symbol_mangle(output_fn)
             if "." in output_fn:
-                module, f = f.rsplit(".", 1)
+                parts = [mangle(x) for x in output_fn.split(".")]
+                module, f = '.'.join(parts[:-1]), parts[-1]
                 self.output_fn = getattr(importlib.import_module(module), f)
             else:
-                self.output_fn = __builtins__[f]
+                self.output_fn = __builtins__[mangle(output_fn)]
 
         code.InteractiveConsole.__init__(self, locals=locals,
                                          filename=filename)
 
+        # Pre-mangle symbols for repl recent results: *1, *2, *3
+        self._repl_results_symbols = [mangle("*{}".format(i + 1)) for i in range(3)]
+        self.locals.update({sym: None for sym in self._repl_results_symbols})
+
     def runsource(self, source, filename='<input>', symbol='single'):
         global SIMPLE_TRACEBACKS
+
+        def error_handler(e, use_simple_traceback=False):
+            self.locals[mangle("*e")] = e
+            if use_simple_traceback:
+                print(e, file=sys.stderr)
+            else:
+                self.showtraceback()
+
         try:
             try:
-                tokens = tokenize(source)
+                do = import_buffer_to_hst(source)
             except PrematureEndOfInput:
                 return True
-            do = HyExpression([HySymbol('do')] + tokens)
-            do.start_line = do.end_line = do.start_column = do.end_column = 1
-            do.replace(do)
         except LexException as e:
             if e.source is None:
                 e.source = source
                 e.filename = filename
-            print(e, file=sys.stderr)
+            error_handler(e, use_simple_traceback=True)
             return False
 
         try:
@@ -104,26 +113,30 @@ class HyREPL(code.InteractiveConsole):
             if e.source is None:
                 e.source = source
                 e.filename = filename
-            if SIMPLE_TRACEBACKS:
-                print(e, file=sys.stderr)
-            else:
-                self.showtraceback()
+            error_handler(e, use_simple_traceback=SIMPLE_TRACEBACKS)
             return False
-        except Exception:
-            self.showtraceback()
+        except Exception as e:
+            error_handler(e)
             return False
 
         if value is not None:
-            # Make the last non-None value available to
-            # the user as `_`.
-            self.locals['_'] = value
+            # Shift exisitng REPL results
+            next_result = value
+            for sym in self._repl_results_symbols:
+                self.locals[sym], next_result = next_result, self.locals[sym]
+
             # Print the value.
-            print(self.output_fn(value))
+            try:
+                output = self.output_fn(value)
+            except Exception as e:
+                error_handler(e)
+                return False
+            print(output)
         return False
 
 
 @macro("koan")
-def koan_macro():
+def koan_macro(ETname):
     return HyExpression([HySymbol('print'),
                          HyString("""
   Ummon asked the head monk, "What sutra are you lecturing on?"
@@ -141,7 +154,7 @@ def koan_macro():
 
 
 @macro("ideas")
-def ideas_macro():
+def ideas_macro(ETname):
     return HyExpression([HySymbol('print'),
                          HyString(r"""
 
@@ -173,8 +186,8 @@ def ideas_macro():
 
 """)])
 
-require("hy.cmdline", "__console__", all_macros=True)
-require("hy.cmdline", "__main__", all_macros=True)
+require("hy.cmdline", "__console__", assignments="ALL")
+require("hy.cmdline", "__main__", assignments="ALL")
 
 SIMPLE_TRACEBACKS = True
 
@@ -251,10 +264,11 @@ def run_icommand(source, **kwargs):
 
 USAGE = "%(prog)s [-h | -i cmd | -c cmd | -m module | file | -] [arg] ..."
 VERSION = "%(prog)s " + hy.__version__
-EPILOG = """  file         program read from script
-  module       module to execute as main
-  -            program read from stdin
-  [arg] ...    arguments passed to program in sys.argv[1:]
+EPILOG = """
+  file                  program read from script
+  module                module to execute as main
+  -                     program read from stdin
+  [arg] ...             arguments passed to program in sys.argv[1:]
 """
 
 
@@ -268,9 +282,10 @@ def cmdline_handler(scriptname, argv):
                         help="program passed in as a string")
     parser.add_argument("-m", dest="mod",
                         help="module to run, passed in as a string")
-    parser.add_argument(
-        "-i", dest="icommand",
-        help="program passed in as a string, then stay in REPL")
+    parser.add_argument("-E", action='store_true',
+                        help="ignore PYTHON* environment variables")
+    parser.add_argument("-i", dest="icommand",
+                        help="program passed in as a string, then stay in REPL")
     parser.add_argument("--spy", action="store_true",
                         help="print equivalent Python code before executing")
     parser.add_argument("--repl-output-fn",
@@ -307,6 +322,10 @@ def cmdline_handler(scriptname, argv):
 
     # reset sys.argv like Python
     sys.argv = options.args + module_args or [""]
+
+    if options.E:
+        # User did "hy -E ..."
+        _remove_python_envs()
 
     if options.command:
         # User did "hy -c ..."
@@ -411,17 +430,17 @@ def hy2py_main():
             else pretty_error(import_buffer_to_ast, stdin_text, module_name))
     if options.with_ast:
         if PY3 and platform.system() == "Windows":
-            _print_for_windows(astor.dump(_ast))
+            _print_for_windows(astor.dump_tree(_ast))
         else:
-            print(astor.dump(_ast))
+            print(astor.dump_tree(_ast))
         print()
         print()
 
     if not options.without_python:
         if PY3 and platform.system() == "Windows":
-            _print_for_windows(astor.codegen.to_source(_ast))
+            _print_for_windows(astor.code_gen.to_source(_ast))
         else:
-            print(astor.codegen.to_source(_ast))
+            print(astor.code_gen.to_source(_ast))
 
     parser.exit(0)
 
@@ -434,3 +453,10 @@ def _print_for_windows(src):
             print(line)
         except:
             print(line.encode('utf-8'))
+
+# remove PYTHON* environment variables,
+# such as "PYTHONPATH"
+def _remove_python_envs():
+    for key in list(os.environ.keys()):
+        if key.startswith("PYTHON"):
+            os.environ.pop(key)

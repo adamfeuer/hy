@@ -1,5 +1,5 @@
 ;;; Hy core macros
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
@@ -10,23 +10,40 @@
 (import [hy.models [HyList HySymbol]])
 
 (defmacro as-> [head name &rest rest]
-  "Expands to sequence of assignments to the provided name, starting with head.
-  The previous result is thus available in the subsequent form. Returns the
-  final result, and leaves the name bound to it in the local scope. This behaves
-  much like the other threading macros, but requires you to specify the threading
-  point per form via the name instead of always the first or last argument."
+  "Beginning with `head`, expand a sequence of assignments `rest` to `name`.
+
+Each assignment is passed to the subsequent form. Returns the final assignment,
+leaving the name bound to it in the local scope.
+
+This behaves similarly to other threading macros, but requires specifying
+the threading point per-form via the name, rather than fixing to the first
+or last argument."
   `(do (setv
          ~name ~head
          ~@(interleave (repeat name) rest))
      ~name))
 
-(defmacro with [args &rest body]
-  "shorthand for nested with* loops:
-  (with [x foo y bar] baz) ->
-  (with* [x foo]
-    (with* [y bar]
-      baz))"
 
+(defmacro assoc [coll k1 v1 &rest other-kvs]
+  "Associate key/index value pair(s) to a collection `coll` like a dict or list.
+
+If more than three parameters are given, the remaining args are k/v pairs to
+be associated in pairs."
+  (if (odd? (len other-kvs))
+    (macro-error (last other-kvs)
+                 "`assoc` takes an odd number of arguments"))
+  (setv c (if other-kvs
+            (gensym "c")
+            coll))
+  `(setv ~@(+ (if other-kvs
+                [c coll]
+                [])
+              #* (gfor [k v] (partition (+ (, k1 v1)
+                                           other-kvs))
+                       [`(get ~c ~k) v]))))
+
+
+(defn _with [node args body]
   (if (not (empty? args))
     (do
      (if (>= (len args) 2)
@@ -34,18 +51,38 @@
         (setv p1 (.pop args 0)
               p2 (.pop args 0)
               primary [p1 p2])
-        `(with* [~@primary] (with ~args ~@body)))
-       `(with* [~@args] ~@body)))
+        `(~node [~@primary] ~(_with node args body)))
+       `(~node [~@args] ~@body)))
     `(do ~@body)))
 
 
+(defmacro with [args &rest body]
+  "Wrap execution of `body` within a context manager given as bracket `args`.
+
+Shorthand for nested with* loops:
+  (with [x foo y bar] baz) ->
+  (with* [x foo]
+    (with* [y bar]
+      baz))."
+  (_with 'with* args body))
+
+
+(defmacro with/a [args &rest body]
+  "Wrap execution of `body` with/ain a context manager given as bracket `args`.
+
+Shorthand for nested with/a* loops:
+  (with/a [x foo y bar] baz) ->
+  (with/a* [x foo]
+    (with/a* [y bar]
+      baz))."
+  (_with 'with/a* args body))
+
+
 (defmacro cond [&rest branches]
-  "shorthand for nested ifs:
-   (cond [foo bar] [baz quux]) ->
-   (if foo
-     bar
-     (if baz
-       quux))"
+  "Build a nested if clause with each `branch` a [cond result] bracket pair.
+
+The result in the bracket may be omitted, in which case the condition is also
+used as the result."
   (if (empty? branches)
     None
     (do
@@ -64,57 +101,28 @@
      (setv root (check-branch branch))
      (setv latest-branch root)
 
-     (for* [branch branches]
+     (for [branch branches]
        (setv cur-branch (check-branch branch))
        (.append latest-branch cur-branch)
        (setv latest-branch cur-branch))
      root)))
 
 
-(defmacro for [args &rest body]
-  "shorthand for nested for loops:
-  (for [x foo
-        y bar]
-    baz) ->
-  (for* [x foo]
-    (for* [y bar]
-      baz))"
-  (setv body (list body))
-  (if (empty? body)
-    (macro-error None "`for' requires a body to evaluate"))
-  (setv lst (get body -1))
-  (setv belse (if (and (isinstance lst HyExpression) (= (get lst 0) "else"))
-                [(body.pop)]
-                []))
-  (cond
-   [(odd? (len args))
-    (macro-error args "`for' requires an even number of args.")]
-   [(empty? body)
-    (macro-error None "`for' requires a body to evaluate")]
-   [(empty? args) `(do ~@body ~@belse)]
-   [(= (len args) 2) `(for* [~@args] (do ~@body) ~@belse)]
-   [True
-    (setv alist (cut args 0 None 2))
-    `(for* [(, ~@alist) (genexpr (, ~@alist) [~@args])] (do ~@body) ~@belse)]))
+(defmacro -> [head &rest args]
+  "Thread `head` first through the `rest` of the forms.
 
-
-(defmacro -> [head &rest rest]
-  "Threads the head through the rest of the forms. Inserts
-   head as the second item in the first form of rest. If
-   there are more forms, inserts the first form as the
-   second item in the second form of rest, etc."
+The result of the first threaded form is inserted into the first position of
+the second form, the second result is inserted into the third form, and so on."
   (setv ret head)
-  (for* [node rest]
-    (if (not (isinstance node HyExpression))
-      (setv node `(~node)))
-    (.insert node 1 ret)
-    (setv ret node))
+  (for [node args]
+    (setv ret (if (isinstance node HyExpression)
+                  `(~(first node) ~ret ~@(rest node))
+                  `(~node ~ret))))
   ret)
 
 
 (defmacro doto [form &rest expressions]
-  "Performs a sequence of potentially mutating actions
-   on an initial object, returning the resulting object"
+  "Perform possibly mutating `expressions` on `form`, returning resulting obj."
   (setv f (gensym))
   (defn build-form [expression]
     (if (isinstance expression HyExpression)
@@ -125,17 +133,17 @@
      ~@(map build-form expressions)
      ~f))
 
-(defmacro ->> [head &rest rest]
-  "Threads the head through the rest of the forms. Inserts
-   head as the last item in the first form of rest. If there
-   are more forms, inserts the first form as the last item
-   in the second form of rest, etc."
+
+(defmacro ->> [head &rest args]
+  "Thread `head` last through the `rest` of the forms.
+
+The result of the first threaded form is inserted into the last position of
+the second form, the second result is inserted into the third form, and so on."
   (setv ret head)
-  (for* [node rest]
-    (if (not (isinstance node HyExpression))
-      (setv node `(~node)))
-    (.append node ret)
-    (setv ret node))
+  (for [node args]
+    (setv ret (if (isinstance node HyExpression)
+                  `(~@node ~ret)
+                  `(~node ~ret))))
   ret)
 
 
@@ -171,14 +179,16 @@
 
 
 (defmacro with-gensyms [args &rest body]
+  "Execute `body` with `args` as bracket of names to gensym for use in macros."
   (setv syms [])
-  (for* [arg args]
+  (for [arg args]
     (.extend syms [arg `(gensym '~arg)]))
   `(do
     (setv ~@syms)
     ~@body))
 
 (defmacro defmacro/g! [name args &rest body]
+  "Like `defmacro`, but symbols prefixed with 'g!' are gensymed."
   (setv syms (list
               (distinct
                (filter (fn [x]
@@ -186,51 +196,82 @@
                               (.startswith x "g!")))
                        (flatten body))))
         gensyms [])
-  (for* [sym syms]
+  (for [sym syms]
     (.extend gensyms [sym `(gensym ~(cut sym 2))]))
   `(defmacro ~name [~@args]
      (setv ~@gensyms)
      ~@body))
 
 (defmacro defmacro! [name args &rest body]
-  "Like defmacro/g! plus automatic once-only evaluation for o!
-   parameters, which are available as the equivalent g! symbol."
-  (setv os (list-comp s [s args] (.startswith s "o!"))
-        gs (list-comp (HySymbol (+ "g!" (cut s 2))) [s os]))
+  "Like `defmacro/g!`, with automatic once-only evaluation for 'o!' params.
+
+Such 'o!' params are available within `body` as the equivalent 'g!' symbol."
+  (defn extract-o!-sym [arg]
+    (cond [(and (symbol? arg) (.startswith arg "o!"))
+           arg]
+          [(and (instance? list arg) (.startswith (first arg) "o!"))
+           (first arg)]))
+  (setv os (list (filter identity (map extract-o!-sym args)))
+        gs (lfor s os (HySymbol (+ "g!" (cut s 2)))))
   `(defmacro/g! ~name ~args
      `(do (setv ~@(interleave ~gs ~os))
           ~@~body)))
 
-(if-python2
-  (defmacro/g! yield-from [expr]
-    `(do (import types)
-         (setv ~g!iter (iter ~expr))
-         (setv ~g!return None)
-         (setv ~g!message None)
-         (while True
-           (try (if (isinstance ~g!iter types.GeneratorType)
-                  (setv ~g!message (yield (.send ~g!iter ~g!message)))
-                  (setv ~g!message (yield (next ~g!iter))))
-           (except [~g!e StopIteration]
-             (do (setv ~g!return (if (hasattr ~g!e "value")
-                                     (. ~g!e value)
-                                     None))
-               (break)))))
-           ~g!return))
-  None)
-
 
 (defmacro defmain [args &rest body]
-  "Write a function named \"main\" and do the if __main__ dance"
+  "Write a function named \"main\" and do the 'if __main__' dance"
   (setv retval (gensym))
   `(when (= --name-- "__main__")
      (import sys)
-     (setv ~retval (apply (fn [~@args] ~@body) sys.argv))
+     (setv ~retval ((fn [~@args] ~@body) #* sys.argv))
      (if (integer? ~retval)
        (sys.exit ~retval))))
 
 
-(defsharp @ [expr]
+(deftag @ [expr]
+  "with-decorator tag macro"
   (setv decorators (cut expr None -1)
         fndef (get expr -1))
   `(with-decorator ~@decorators ~fndef))
+
+(defmacro comment [&rest body]
+  "Ignores body and always expands to None"
+  None)
+
+(defmacro doc [symbol]
+  "macro documentation
+
+   Gets help for a macro function available in this module.
+   Use ``require`` to make other macros available.
+
+   Use ``#doc foo`` instead for help with tag macro ``#foo``.
+   Use ``(help foo)`` instead for help with runtime objects."
+  `(try
+     (help (. (__import__ "hy")
+              macros
+              _hy_macros
+              [__name__]
+              ['~symbol]))
+     (except [KeyError]
+       (help (. (__import__ "hy")
+                macros
+                _hy_macros
+                [None]
+                ['~symbol])))))
+
+(deftag doc [symbol]
+  "tag macro documentation
+
+   Gets help for a tag macro function available in this module."
+  `(try
+     (help (. (__import__ "hy")
+              macros
+              _hy_tag
+              [__name__]
+              ['~symbol]))
+     (except [KeyError]
+       (help (. (__import__ "hy")
+                macros
+                _hy_tag
+                [None]
+                ['~symbol])))))

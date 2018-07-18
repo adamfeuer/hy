@@ -1,15 +1,14 @@
 ;;; Hy anaphoric macros
-;; Copyright 2017 the authors.
+;; Copyright 2018 the authors.
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
 ;;; These macros make writing functional programs more concise
 
-
 (defmacro ap-if [test-form then-form &optional else-form]
   `(do
-    (setv it ~test-form)
-    (if it ~then-form ~else-form)))
+     (setv it ~test-form)
+     (if it ~then-form ~else-form)))
 
 
 (defmacro ap-each [lst &rest body]
@@ -25,17 +24,17 @@
      (defn ~p [it] ~form)
      (for [it ~lst]
        (if (~p it)
-         ~@body
-         (break)))))
+           ~@body
+           (break)))))
 
 
 (defmacro ap-map [form lst]
   "Yield elements evaluated in the form for each element in the list."
   (setv v (gensym 'v)  f (gensym 'f))
   `((fn []
-     (defn ~f [it] ~form)
-     (for [~v ~lst]
-       (yield (~f ~v))))))
+      (defn ~f [it] ~form)
+      (for [~v ~lst]
+        (yield (~f ~v))))))
 
 
 (defmacro ap-map-when [predfn rep lst]
@@ -43,21 +42,21 @@
   predicate function returns True."
   (setv f (gensym))
   `((fn []
-     (defn ~f [it] ~rep)
-     (for [it ~lst]
-       (if (~predfn it)
-         (yield (~f it))
-         (yield it))))))
+      (defn ~f [it] ~rep)
+      (for [it ~lst]
+        (if (~predfn it)
+            (yield (~f it))
+            (yield it))))))
 
 
 (defmacro ap-filter [form lst]
   "Yield elements returned when the predicate form evaluates to True."
   (setv pred (gensym))
   `((fn []
-     (defn ~pred [it] ~form)
-     (for [val ~lst]
-       (if (~pred val)
-         (yield val))))))
+      (defn ~pred [it] ~form)
+      (for [val ~lst]
+        (if (~pred val)
+            (yield val))))))
 
 
 (defmacro ap-reject [form lst]
@@ -95,43 +94,38 @@
 (defmacro ap-reduce [form lst &optional [initial-value None]]
   "Anaphoric form of reduce, `acc' and `it' can be used for a form"
   `(do
-    (setv acc ~(if (none? initial-value) `(get ~lst 0) initial-value))
-    (ap-each ~(if (none? initial-value) `(cut ~lst 1) lst)
-      (setv acc ~form))
-    acc))
+     (setv acc ~(if (none? initial-value) `(get ~lst 0) initial-value))
+     (ap-each ~(if (none? initial-value) `(cut ~lst 1) lst)
+              (setv acc ~form))
+     acc))
 
 
-(defmacro ap-pipe [var &rest forms]
-  "Pushes a value through several forms.
-  (Anaphoric version of -> and ->>)"
-  (if (empty? forms) var
-      `(ap-pipe (do (setv it ~var) ~(first forms)) ~@(rest forms))))
+(deftag % [expr]
+  "Makes an expression into a function with an implicit `%` parameter list.
 
+   A `%i` symbol designates the (1-based) ith parameter (such as `%3`).
+   Only the maximum `%i` determines the number of `%i` parameters--the
+   others need not appear in the expression.
+   `%*` and `%**` name the `&rest` and `&kwargs` parameters, respectively.
 
-(defmacro ap-compose [&rest forms]
-  "Returns a function which is the composition of several forms."
-  `(fn [var] (ap-pipe var ~@forms)))
-
-(defmacro xi [&rest body]
-  "Returns a function with parameters implicitly determined by the presence in
-   the body of xi parameters. An xi symbol designates the ith parameter
-   (1-based, e.g. x1, x2, x3, etc.), or all remaining parameters for xi itself.
-   This is not a replacement for fn. The xi forms cannot be nested. "
-  (setv flatbody (flatten body))
-  `(fn [;; generate all xi symbols up to the maximum found in body
-            ~@(genexpr (HySymbol (+ "x"
-                                    (str i)))
-                       [i (range 1
-                                 ;; find the maximum xi
-                                 (inc (max (+ (list-comp (int (cut a 1))
-                                                         [a flatbody]
-                                                         (and (symbol? a)
-                                                              (.startswith a 'x)
-                                                              (.isdigit (cut a 1))))
-                                              [0]))))])
-            ;; generate the &rest parameter only if 'xi is present in body
-            ~@(if (in 'xi flatbody)
-                '(&rest xi)
-                '())]
-     (~@body)))
+   Nesting of `#%` forms is not recommended."
+  (setv %symbols (sfor a (flatten [expr])
+                       :if (and (symbol? a)
+                                (.startswith a '%))
+                       a))
+  `(fn [;; generate all %i symbols up to the maximum found in expr
+        ~@(gfor i (range 1 (-> (lfor a %symbols
+                                     :if (.isdigit (cut a 1))
+                                     (int (cut a 1)))
+                               (or (, 0))
+                               max
+                               inc))
+                (HySymbol (+ "%" (str i))))
+        ;; generate the &rest parameter only if '%* is present in expr
+        ~@(if (in '%* %symbols)
+              '(&rest %*))
+        ;; similarly for &kwargs and %**
+        ~@(if (in '%** %symbols)
+              '(&kwargs %**))]
+     ~expr))
 
